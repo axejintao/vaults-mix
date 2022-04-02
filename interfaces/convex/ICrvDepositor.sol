@@ -7,11 +7,5 @@ interface ICrvDepositor {
     //can locking immediately or defer locking to someone else by paying a fee.
     //while users can choose to lock or defer, this is mostly in place so that
     //the cvx reward contract isnt costly to claim rewards
-    function deposit(
-        uint256 _amount,
-        bool _lock,
-        address _stakeAddress
-    ) external;
-
-    function depositAll(bool _lock, address _stakeAddress) external;
+    function deposit(uint256 _amount, bool _lock) external;
 }

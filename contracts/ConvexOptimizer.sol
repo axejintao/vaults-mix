@@ -4,35 +4,46 @@ pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
 import {IERC20Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import {SafeMathUpgradeable} from "deps/@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
-import {MathUpgradeable} from "deps/@openzeppelin/contracts-upgradeable/math/MathUpgradeable.sol";
+import {SafeMathUpgradeable} from "@openzeppelin-contracts-upgradeable/math/SafeMathUpgradeable.sol";
+import {MathUpgradeable} from "@openzeppelin-contracts-upgradeable/math/MathUpgradeable.sol";
 import {SafeERC20Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
-import {AddressUpgradeable} from "deps/@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 import {BaseStrategy} from "@badger-finance/BaseStrategy.sol";
 
 import "interfaces/convex/IBooster.sol";
-import "interfaces/convex/CrvDepositor.sol";
+import "interfaces/convex/ICrvDepositor.sol";
 import "interfaces/convex/IBaseRewardsPool.sol";
+import "interfaces/badger/IVault.sol";
 
 contract ConvexOptimizer is BaseStrategy {
     using SafeERC20Upgradeable for IERC20Upgradeable;
-    using AddressUpgradeable for address;
     using SafeMathUpgradeable for uint256;
 
+    // Curve + Convex Adresses
+    address private constant curveAdressProvider = 0x0000000022D53366457F9d5E68Ec105046FC4383;
+    address private constant convexBooster = 0xF403C135812408BFbE8713b5A23a04b3D48AAE31;
+    address private constant convexCrvDepositor = 0x8014595F2AB54cD7c604B00E9fb932176fDc86Ae;
+
+    // Token Addresses
     address private constant crvAddress = 0xD533a949740bb3306d119CC777fa900bA034cd52;
     address private constant cvxAddress = 0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B;
     address private constant cvxCrvAddress = 0x62B9c7356A2Dc64a1969e19C23e4f579F9810Aa7;
+    address private constant bveCvxAddress = 0xfd05D3C7fe2924020620A8bE4961bBaA747e6305;
+    address private constant bcvxCrvAddress = 0x2B5455aac8d64C14786c3a29858E43b5945819C0;
 
-    IERC20Upgradeable public constant crv = IERC20Upgradeable(crvAddress);
-    IERC20Upgradeable public constant cvx = IERC20Upgradeable(cvxAddress);
-    IERC20Upgradeable public constant cvxCrv = IERC20Upgradeable(cvxCrvAddress);
-    IERC20Upgradeable public constant usdc = IERC20Upgradeable(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
-    IERC20Upgradeable public constant threeCrv = IERC20Upgradeable(0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490);
-    IERC20Upgradeable public constant bveCVX = IERC20Upgradeable(0xfd05D3C7fe2924020620A8bE4961bBaA747e6305);
-    
-    IBooster public constant booster = IBooster(0xF403C135812408BFbE8713b5A23a04b3D48AAE31);
-    CrvDepositor public constant crvDepositor = CrvDepositor(0x8014595F2AB54cD7c604B00E9fb932176fDc86Ae);
+    // Tokens
+    IERC20Upgradeable private constant crv = IERC20Upgradeable(crvAddress);
+    IERC20Upgradeable private constant cvx = IERC20Upgradeable(cvxAddress);
+    IERC20Upgradeable private constant cvxCrv = IERC20Upgradeable(cvxCrvAddress);
 
+    // Badger Vaults
+    IVault private constant bveCvx = IVault(bveCvxAddress);
+    IVault private constant bcvxCrv = IVault(bcvxCrvAddress);
+
+    // Convex Contracts
+    IBooster private constant booster = IBooster(convexBooster);
+    ICrvDepositor private constant crvDepositor = ICrvDepositor(convexCrvDepositor);
+
+    // Strategy Specific Information
     uint256 public pid;
     IBaseRewardsPool public baseRewardsPool;
 
@@ -40,11 +51,17 @@ contract ConvexOptimizer is BaseStrategy {
      * @param _vault Strategy vault implementation
      * @param _wantConfig [want] Configuration array
      */
-    function initialize(address _vault, address[1] memory _wantConfig, uint256 _pid) public initializer {
+    function initialize(
+        address _vault,
+        address[1] memory _wantConfig,
+        uint256 _pid,
+        uint256 _autoCompoundRatio
+    ) public initializer {
         __BaseStrategy_init(_vault);
 
         want = _wantConfig[0];
         pid = _pid;
+        autoCompoundRatio = _autoCompoundRatio;
 
         IBooster.PoolInfo memory poolInfo = booster.poolInfo(pid);
         baseRewardsPool = IBaseRewardsPool(poolInfo.crvRewards);
@@ -55,7 +72,7 @@ contract ConvexOptimizer is BaseStrategy {
         IERC20Upgradeable(want).safeApprove(address(booster), type(uint256).max);
         crv.safeApprove(address(crvDepositor), type(uint256).max);
     }
-    
+
     /// @dev Return the name of the strategy
     function getName() external pure override returns (string memory) {
         return "ConvexOptimizer";
@@ -65,11 +82,13 @@ contract ConvexOptimizer is BaseStrategy {
     /// @notice It's very important all tokens that are meant to be in the strategy to be marked as protected
     /// @notice this provides security guarantees to the depositors they can't be sweeped away
     function getProtectedTokens() public view virtual override returns (address[] memory) {
-        address[] memory protectedTokens = new address[](4);
+        address[] memory protectedTokens = new address[](6);
         protectedTokens[0] = want;
         protectedTokens[1] = crvAddress;
         protectedTokens[2] = cvxAddress;
         protectedTokens[3] = cvxCrvAddress;
+        protectedTokens[4] = bveCvxAddress;
+        protectedTokens[5] = bcvxCrvAddress;
         return protectedTokens;
     }
 
@@ -91,7 +110,7 @@ contract ConvexOptimizer is BaseStrategy {
 
         // If we lack sufficient idle want, withdraw the difference from the strategy position
         if (_preWant < _amount) {
-            uint256 _toWithdraw = SafeMathUpgradeable.sub(_amount, _preWant);
+            uint256 _toWithdraw = _amount.sub(_preWant);
             baseRewardsPool.withdrawAndUnwrap(_toWithdraw, false);
         }
 
@@ -99,23 +118,68 @@ contract ConvexOptimizer is BaseStrategy {
         uint256 _postWant = IERC20Upgradeable(want).balanceOf(address(this));
 
         // Return the actual amount withdrawn if less than requested
-        uint256 _withdrawn = MathUpgradeable.min(_postWant, _amount);
-
-        // TODO: what to replace this with? 
-        // emit WithdrawState(_amount, _preWant, _postWant, _withdrawn);
-
-        return _withdrawn;
+        return MathUpgradeable.min(_postWant, _amount);
     }
 
-
     /// @dev No tend
-    function _isTendable() internal override pure returns (bool) {
+    function _isTendable() internal pure override returns (bool) {
         return false;
     }
 
     function _harvest() internal override returns (TokenAmount[] memory harvested) {
-    }
+        uint256 currentWant = balanceOfWant();
+        address[] memory extraRewards = baseRewardsPool.extraRewards();
+        uint256 baseRewardsCount = 2 + autoCompoundRatio > 0 ? 1 : 0;
+        harvested = new TokenAmount[](extraRewards.length + baseRewardsCount);
+        harvested[0].token = bcvxCrvAddress;
+        harvested[1].token = bveCvxAddress;
+        harvested[2].token = want;
 
+        // Claim vault CRV rewards + extra incentives
+        baseRewardsPool.getReward(address(this), true);
+
+        // Calculate how much CRV to compound and distribute
+        uint256 crvBalance = crv.balanceOf(address(this));
+        uint256 crvCompounded = crvBalance.mul(autoCompoundRatio).div(MAX_BPS);
+        uint256 crvDistributed = crvBalance - crvCompounded;
+
+        // Maximize our cvxCRV acquired and deposit into bcvxCRV
+        if (crvDistributed > 0) {
+            /**
+            * It is possible to get a better rate for CRV:cvxCRV from the pool,
+            * we will check the pool swap to verify this case - if the rate is not
+            * favorable then just use the standard deposit instead.
+            */
+            // if () {
+            //     // TODO: Check current crv -> cvxCRV pool swap rate
+            // } else {
+            //     crvDepositor.deposit(currentCrv, false);
+            // }
+
+            // TODO: simple deposit for now
+            crvDepositor.deposit(crvDistributed, false);
+
+            // Deposit acquired cvxCRV into the vault and report
+            bcvxCrv.deposit(cvxCrv.balanceOf(address(this)));
+            uint256 bcvxCrvBalance = bcvxCrv.balanceOf(address(this));
+            harvested[0].amount = bcvxCrvBalance;
+            _processExtraToken(bcvxCrvAddress, bcvxCrvBalance);
+        }
+
+        // Calculate how much CVX to compound and distribute
+        uint256 cvxBalance = cvx.balanceOf(address(this));
+        uint256 cvxCompounded = cvxBalance.mul(autoCompoundRatio).div(MAX_BPS);
+        uint256 cvxDistributed = cvxBalance - cvxCompounded;
+
+        if (cvxDistributed > 0) {
+            bveCvx.deposit(cvxDistributed);
+            uint256 bveCvxBalance = bveCvx.balanceOf(address(this));
+            harvested[1].amount = bveCvxBalance;
+            _processExtraToken(bveCvxAddress, bveCvxBalance);
+        }
+
+
+    }
 
     /// @dev No tend
     function _tend() internal override returns (TokenAmount[] memory tended) {
@@ -141,15 +205,15 @@ contract ConvexOptimizer is BaseStrategy {
         }
         return rewards;
     }
-    
+
     /// @dev Adapted from https://docs.convexfinance.com/convexfinanceintegration/cvx-minting
     function getCvxMint(uint256 _earned) internal view returns (uint256) {
         uint256 cvxTotalSupply = cvx.totalSupply();
-        uint256 currentCliff = cvxTotalSupply / 100000;
+        uint256 currentCliff = cvxTotalSupply / 100000e18;
         if (currentCliff < 1000) {
             uint256 remaining = 1000 - currentCliff;
             uint256 cvxEarned = (_earned * remaining) / 1000;
-            uint256 amountTillMax = 100000000 - cvxTotalSupply;
+            uint256 amountTillMax = 100000000e18 - cvxTotalSupply;
             if (cvxEarned > amountTillMax) {
                 cvxEarned = amountTillMax;
             }

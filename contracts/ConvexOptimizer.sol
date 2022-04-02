@@ -9,12 +9,16 @@ import {MathUpgradeable} from "@openzeppelin-contracts-upgradeable/math/MathUpgr
 import {SafeERC20Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
 import {BaseStrategy} from "@badger-finance/BaseStrategy.sol";
 
+import {CurveSwapper} from "deps/CurveSwapper.sol";
+import {UniswapSwapper} from "deps/UniswapSwapper.sol";
+import {TokenSwapPathRegistry} from "deps/TokenSwapPathRegistry.sol";
+
 import "interfaces/convex/IBooster.sol";
 import "interfaces/convex/ICrvDepositor.sol";
 import "interfaces/convex/IBaseRewardsPool.sol";
 import "interfaces/badger/IVault.sol";
 
-contract ConvexOptimizer is BaseStrategy {
+contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwapPathRegistry {
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using SafeMathUpgradeable for uint256;
 

@@ -17,6 +17,7 @@ import "interfaces/convex/IBooster.sol";
 import "interfaces/convex/ICrvDepositor.sol";
 import "interfaces/convex/IBaseRewardsPool.sol";
 import "interfaces/badger/IVault.sol";
+import "interfaces/curve/ICurveFi.sol";
 
 contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwapPathRegistry {
     using SafeERC20Upgradeable for IERC20Upgradeable;
@@ -26,6 +27,7 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
     address private constant curveAdressProvider = 0x0000000022D53366457F9d5E68Ec105046FC4383;
     address private constant convexBooster = 0xF403C135812408BFbE8713b5A23a04b3D48AAE31;
     address private constant convexCrvDepositor = 0x8014595F2AB54cD7c604B00E9fb932176fDc86Ae;
+    address private constant curveCvxCrvCrvPool = 0x9D0464996170c6B9e75eED71c68B99dDEDf279e8;
 
     // Token Addresses
     address private constant crvAddress = 0xD533a949740bb3306d119CC777fa900bA034cd52;
@@ -43,12 +45,14 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
     IVault private constant bveCvx = IVault(bveCvxAddress);
     IVault private constant bcvxCrv = IVault(bcvxCrvAddress);
 
-    // Convex Contracts
+    // Curve + Convex Contracts
     IBooster private constant booster = IBooster(convexBooster);
     ICrvDepositor private constant crvDepositor = ICrvDepositor(convexCrvDepositor);
+    ICurveFi private constant cvxCrvCrvPool = ICurveFi(curveCvxCrvCrvPool);
 
     // Strategy Specific Information
     uint256 public pid;
+    uint256 public stableSwapSlippageTolerance;
     IBaseRewardsPool public baseRewardsPool;
 
     /**
@@ -59,12 +63,14 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
         address _vault,
         address[1] memory _wantConfig,
         uint256 _pid,
+        uint256 _stableSwapSlippageTolerance,
         uint256 _autoCompoundRatio
     ) public initializer {
         __BaseStrategy_init(_vault);
 
         want = _wantConfig[0];
         pid = _pid;
+        stableSwapSlippageTolerance = _stableSwapSlippageTolerance;
         autoCompoundRatio = _autoCompoundRatio;
 
         IBooster.PoolInfo memory poolInfo = booster.poolInfo(pid);
@@ -149,19 +155,22 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
 
         // Maximize our cvxCRV acquired and deposit into bcvxCRV
         if (crvDistributed > 0) {
-            /**
-            * It is possible to get a better rate for CRV:cvxCRV from the pool,
-            * we will check the pool swap to verify this case - if the rate is not
-            * favorable then just use the standard deposit instead.
-            */
-            // if () {
-            //     // TODO: Check current crv -> cvxCRV pool swap rate
-            // } else {
-            //     crvDepositor.deposit(currentCrv, false);
-            // }
-
-            // TODO: simple deposit for now
-            crvDepositor.deposit(crvDistributed, false);
+            /*
+             * It is possible to get a better rate for CRV:cvxCRV from the pool,
+             * we will check the pool swap to verify this case - if the rate is not
+             * favorable then just use the standard deposit instead.
+             * Token 0: CRV
+             * Token 1: cvxCRV
+             * Pool Index: 2
+             */
+            uint256 cvxCrvReceived = cvxCrvCrvPool.get_dy(0, 1, crvDistributed);
+            if (cvxCrvReceived > crvDistributed) {
+                uint256 cvxCrvMinOut = crvDistributed.mul(MAX_BPS.sub(stableSwapSlippageTolerance)).div(MAX_BPS);
+                _exchange(crvAddress, cvxCrvAddress, crvDistributed, cvxCrvMinOut, 2, true);
+            } else {
+                // Deposit, but do not stake the CRV to get cvxCRV
+                crvDepositor.deposit(crvDistributed, false);
+            }
 
             // Deposit acquired cvxCRV into the vault and report
             bcvxCrv.deposit(cvxCrv.balanceOf(address(this)));
@@ -182,7 +191,20 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
             _processExtraToken(bveCvxAddress, bveCvxBalance);
         }
 
-
+        // TODO: Handle the extra rewards
+        // This is probably an opinionated area, emit as a placeholder
+        for (uint256 i = 0; i < extraRewards.length; i++) {
+            address rewardToken = extraRewards[i];
+            // Handle an edge case where a pool has CVX or CRV bonus rewards
+            if (rewardToken == cvxAddress || rewardToken == crvAddress) {
+                continue;
+            }
+            uint256 rewardTokenBalance = IERC20Upgradeable(rewardToken).balanceOf(address(this));
+            if (rewardTokenBalance > 0) {
+                harvested[2 + i].amount = rewardTokenBalance;
+                _processExtraToken(rewardToken, rewardTokenBalance);
+            }
+        }
     }
 
     /// @dev No tend

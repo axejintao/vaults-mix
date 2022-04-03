@@ -1,7 +1,7 @@
 import time
 
 from brownie import (
-    MyStrategy,
+    ConvexOptimizer,
     TheVault,
     interface,
     accounts,
@@ -37,14 +37,11 @@ def user():
 ## Fund the account
 @pytest.fixture
 def want(deployer):
-    """
-        TODO: Customize this so you have the token you need for the strat
-    """
     TOKEN_ADDRESS = WANT
     token = interface.IERC20Detailed(TOKEN_ADDRESS)
     WHALE = accounts.at(WHALE_ADDRESS, force=True) ## Address with tons of token
 
-    token.transfer(deployer, token.balanceOf(WHALE), {"from": WHALE})
+    token.transfer(deployer, token.balanceOf(WHALE)/4, {"from": WHALE})
     return token
 
 
@@ -118,7 +115,7 @@ def deployed(want, deployer, strategist, keeper, guardian, governance, proxyAdmi
     vault.setStrategist(deployer, {"from": governance})
     # NOTE: TheVault starts unpaused
 
-    strategy = MyStrategy.deploy({"from": deployer})
+    strategy = ConvexOptimizer.deploy({"from": deployer})
     strategy.initialize(vault, [want])
     # NOTE: Strategy starts unpaused
 

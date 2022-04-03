@@ -93,7 +93,6 @@ def deployed(want, deployer, strategist, keeper, guardian, governance, proxyAdmi
     """
     want = want
 
-
     vault = TheVault.deploy({"from": deployer})
     vault.initialize(
         want,
@@ -116,7 +115,7 @@ def deployed(want, deployer, strategist, keeper, guardian, governance, proxyAdmi
     # NOTE: TheVault starts unpaused
 
     strategy = ConvexOptimizer.deploy({"from": deployer})
-    strategy.initialize(vault, [want])
+    strategy.initialize(vault, [want], 72, 50, 0);
     # NOTE: Strategy starts unpaused
 
     vault.setStrategy(strategy, {"from": governance})

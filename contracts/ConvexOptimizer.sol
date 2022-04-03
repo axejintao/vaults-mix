@@ -74,9 +74,10 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
         autoCompoundRatio = _autoCompoundRatio;
 
         IBooster.PoolInfo memory poolInfo = booster.poolInfo(pid);
-        baseRewardsPool = IBaseRewardsPool(poolInfo.crvRewards);
         /// @dev verify the configuration is in fact valid
-        require(baseRewardsPool.stakingToken() == want, "INVALID");
+        require(poolInfo.lptoken == want, "INVALID_WANT_CONFIG");
+        baseRewardsPool = IBaseRewardsPool(poolInfo.crvRewards);
+        require(poolInfo.token == baseRewardsPool.stakingToken(), "INVALID_POOL_CONFIG");
 
         // Setup Token Approvals
         IERC20Upgradeable(want).safeApprove(address(booster), type(uint256).max);
@@ -233,6 +234,7 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
     }
 
     /// @dev Adapted from https://docs.convexfinance.com/convexfinanceintegration/cvx-minting
+    /// @notice Only used for view functions to estimate APR 
     function getCvxMint(uint256 _earned) internal view returns (uint256) {
         uint256 cvxTotalSupply = cvx.totalSupply();
         uint256 currentCliff = cvxTotalSupply / 100000e18;

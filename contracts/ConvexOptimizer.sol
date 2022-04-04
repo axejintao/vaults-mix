@@ -73,8 +73,8 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
         stableSwapSlippageTolerance = _stableSwapSlippageTolerance;
         autoCompoundRatio = _autoCompoundRatio;
 
-        IBooster.PoolInfo memory poolInfo = booster.poolInfo(pid);
         /// @dev verify the configuration is in fact valid
+        IBooster.PoolInfo memory poolInfo = booster.poolInfo(pid);
         require(poolInfo.lptoken == want, "INVALID_WANT_CONFIG");
         baseRewardsPool = IBaseRewardsPool(poolInfo.crvRewards);
         require(poolInfo.token == baseRewardsPool.stakingToken(), "INVALID_POOL_CONFIG");
@@ -139,9 +139,9 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
 
     function _harvest() internal override returns (TokenAmount[] memory harvested) {
         uint256 currentWant = balanceOfWant();
-        address[] memory extraRewards = baseRewardsPool.extraRewards();
         uint256 baseRewardsCount = 2 + autoCompoundRatio > 0 ? 1 : 0;
-        harvested = new TokenAmount[](extraRewards.length + baseRewardsCount);
+        uint256 extraRewardsCount = baseRewardsPool.extraRewardsLength();
+        harvested = new TokenAmount[](baseRewardsCount + extraRewardsCount);
         harvested[0].token = bcvxCrvAddress;
         harvested[1].token = bveCvxAddress;
         harvested[2].token = want;
@@ -194,15 +194,17 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
 
         // TODO: Handle the extra rewards
         // This is probably an opinionated area, emit as a placeholder
-        for (uint256 i = 0; i < extraRewards.length; i++) {
-            address rewardToken = extraRewards[i];
+        for (uint256 i = 0; i < extraRewardsCount; i++) {
+            address extraRewardsPoolAddress = baseRewardsPool.extraRewards(i);
+            IBaseRewardsPool extraRewardsPool = IBaseRewardsPool(extraRewardsPoolAddress);
+            address rewardToken = extraRewardsPool.rewardToken();
             // Handle an edge case where a pool has CVX or CRV bonus rewards
             if (rewardToken == cvxAddress || rewardToken == crvAddress) {
                 continue;
             }
             uint256 rewardTokenBalance = IERC20Upgradeable(rewardToken).balanceOf(address(this));
             if (rewardTokenBalance > 0) {
-                harvested[2 + i].amount = rewardTokenBalance;
+                harvested[i + 3].amount = rewardTokenBalance;
                 _processExtraToken(rewardToken, rewardTokenBalance);
             }
         }
@@ -221,20 +223,21 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
     /// @dev Return the balance of rewards that the strategy has accrued
     /// @notice Used for offChain APY and Harvest Health monitoring
     function balanceOfRewards() external view override returns (TokenAmount[] memory rewards) {
-        address[] memory extraRewards = baseRewardsPool.extraRewards();
-        rewards = new TokenAmount[](extraRewards.length + 2);
+        uint256 extraRewards = baseRewardsPool.extraRewardsLength();
+        rewards = new TokenAmount[](extraRewards + 2);
         uint256 crvRewards = baseRewardsPool.rewards(address(this));
         rewards[0] = TokenAmount(crvAddress, crvRewards);
         rewards[1] = TokenAmount(cvxAddress, getCvxMint(crvRewards));
-        for (uint256 i = 0; i < extraRewards.length; i++) {
-            IBaseRewardsPool extraRewardsPool = IBaseRewardsPool(extraRewards[i]);
-            rewards[i + 2] = TokenAmount(extraRewards[i], extraRewardsPool.rewards(address(this)));
+        for (uint256 i = 0; i < extraRewards; i++) {
+            address extraRewardsPoolAddress = baseRewardsPool.extraRewards(i);
+            IBaseRewardsPool extraRewardsPool = IBaseRewardsPool(extraRewardsPoolAddress);
+            rewards[i + 3] = TokenAmount(extraRewardsPool.rewardToken(), extraRewardsPool.rewards(address(this)));
         }
         return rewards;
     }
 
     /// @dev Adapted from https://docs.convexfinance.com/convexfinanceintegration/cvx-minting
-    /// @notice Only used for view functions to estimate APR 
+    /// @notice Only used for view functions to estimate APR
     function getCvxMint(uint256 _earned) internal view returns (uint256) {
         uint256 cvxTotalSupply = cvx.totalSupply();
         uint256 currentCliff = cvxTotalSupply / 100000e18;

@@ -7,7 +7,9 @@ interface IBaseRewardsPool {
     function balanceOf(address _account) external view returns (uint256);
 
     //extra rewards
-    function extraRewards() external view returns (address[] memory);
+    function extraRewards(uint256 _index) external view returns (address);
+
+    function extraRewardsLength() external view returns (uint256);
 
     //withdraw to a convex tokenized deposit
     function withdraw(uint256 _amount, bool _claim) external returns (bool);
@@ -37,6 +39,8 @@ interface IBaseRewardsPool {
     function earned(address _account) external view returns (uint256);
 
     function stakingToken() external view returns (address);
+
+    function rewardToken() external view returns (address);
 
     function periodFinish() external view returns (uint256);
 }

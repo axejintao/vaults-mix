@@ -36,6 +36,9 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
     address private constant bveCvxAddress = 0xfd05D3C7fe2924020620A8bE4961bBaA747e6305;
     address private constant bcvxCrvAddress = 0x2B5455aac8d64C14786c3a29858E43b5945819C0;
 
+    // Badger Infrastructure Addresses
+    address private constant badgerTreeAddress = 0x660802Fc641b154aBA66a62137e71f331B6d787A;
+
     // Tokens
     IERC20Upgradeable private constant crv = IERC20Upgradeable(crvAddress);
     IERC20Upgradeable private constant cvx = IERC20Upgradeable(cvxAddress);
@@ -80,8 +83,9 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
         require(poolInfo.token == baseRewardsPool.stakingToken(), "INVALID_POOL_CONFIG");
 
         // Setup Token Approvals
-        IERC20Upgradeable(want).safeApprove(address(booster), type(uint256).max);
-        crv.safeApprove(address(crvDepositor), type(uint256).max);
+        IERC20Upgradeable(want).safeApprove(convexBooster, type(uint256).max);
+        crv.safeApprove(convexCrvDepositor, type(uint256).max);
+        cvxCrv.safeApprove(bcvxCrvAddress, type(uint256).max);
     }
 
     /// @dev Return the name of the strategy
@@ -173,8 +177,11 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
                 crvDepositor.deposit(crvDistributed, false);
             }
 
-            // Deposit acquired cvxCRV into the vault and report
-            bcvxCrv.deposit(cvxCrv.balanceOf(address(this)));
+            /*
+             * Deposit acquired cvxCRV into the vault and report.
+             * Due to the block lock, we will deposit on behalf of the Badger Tree
+             */
+            bcvxCrv.depositFor(badgerTreeAddress, cvxCrv.balanceOf(address(this)));
             uint256 bcvxCrvBalance = bcvxCrv.balanceOf(address(this));
             harvested[0].amount = bcvxCrvBalance;
             _processExtraToken(bcvxCrvAddress, bcvxCrvBalance);

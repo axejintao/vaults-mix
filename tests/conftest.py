@@ -6,6 +6,7 @@ from brownie import (
     interface,
     accounts,
 )
+from brownie import interface;
 from _setup.config import (
     WANT, 
     WHALE_ADDRESS,
@@ -16,6 +17,7 @@ from _setup.config import (
     MANAGEMENT_FEE,
 )
 from helpers.constants import MaxUint256
+from helpers.time import days
 from rich.console import Console
 
 console = Console()
@@ -119,6 +121,18 @@ def deployed(want, deployer, strategist, keeper, guardian, governance, proxyAdmi
     # NOTE: Strategy starts unpaused
 
     vault.setStrategy(strategy, {"from": governance})
+
+    ## Grant contract access from strategy to cvxCRV Helper Vault
+    cvxCrvHelperVault = interface.IVault("0x2B5455aac8d64C14786c3a29858E43b5945819C0")
+    cvxCrvHelperGov = accounts.at(cvxCrvHelperVault.governance(), force=True)
+    cvxCrvHelperVault.approveContractAccess(strategy.address, {"from": cvxCrvHelperGov})
+
+    ## Reset rewards if they are set to expire within the next 4 days or are expired already
+    rewardsPool = interface.IBaseRewardsPool(strategy.baseRewardsPool())
+    if rewardsPool.periodFinish() - int(time.time()) < days(4):
+        booster = interface.IBooster("0xF403C135812408BFbE8713b5A23a04b3D48AAE31")
+        booster.earmarkRewards(72, {"from": deployer})
+        console.print("[green]BaseRewardsPool expired or expiring soon - it was reset![/green]")
 
     return DotMap(
         deployer=deployer,

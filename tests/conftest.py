@@ -127,6 +127,11 @@ def deployed(want, deployer, strategist, keeper, guardian, governance, proxyAdmi
     cvxCrvHelperGov = accounts.at(cvxCrvHelperVault.governance(), force=True)
     cvxCrvHelperVault.approveContractAccess(strategy.address, {"from": cvxCrvHelperGov})
 
+    ## Grant contract access from strategy to CVX Helper Vault
+    cvxHelperVault = interface.IVault("0xfd05D3C7fe2924020620A8bE4961bBaA747e6305")
+    cvxHelperGov = accounts.at(cvxHelperVault.governance(), force=True)
+    cvxHelperVault.approveContractAccess(strategy.address, {"from": cvxHelperGov})
+
     ## Reset rewards if they are set to expire within the next 4 days or are expired already
     rewardsPool = interface.IBaseRewardsPool(strategy.baseRewardsPool())
     if rewardsPool.periodFinish() - int(time.time()) < days(4):

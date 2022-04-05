@@ -26,13 +26,13 @@ interface ICurveFi {
         int128 i,
         int128 j,
         uint256 dx
-    ) external returns (uint256 out);
+    ) external view returns (uint256 out);
 
     function get_dy_underlying(
         int128 i,
         int128 j,
         uint256 dx
-    ) external returns (uint256 out);
+    ) external view returns (uint256 out);
 
     function exchange(
         int128 i,

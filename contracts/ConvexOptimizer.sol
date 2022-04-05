@@ -85,6 +85,7 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
         // Setup Token Approvals
         IERC20Upgradeable(want).safeApprove(convexBooster, type(uint256).max);
         crv.safeApprove(convexCrvDepositor, type(uint256).max);
+        crv.safeApprove(curveCvxCrvCrvPool, type(uint256).max);
         cvxCrv.safeApprove(bcvxCrvAddress, type(uint256).max);
     }
 
@@ -164,12 +165,17 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
              * It is possible to get a better rate for CRV:cvxCRV from the pool,
              * we will check the pool swap to verify this case - if the rate is not
              * favorable then just use the standard deposit instead.
+             *
              * Token 0: CRV
              * Token 1: cvxCRV
+             * Usage: get_dy(token0, token1, amount);
+             *
              * Pool Index: 2
+             * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
              */
             uint256 cvxCrvReceived = cvxCrvCrvPool.get_dy(0, 1, crvDistributed);
-            if (cvxCrvReceived > crvDistributed) {
+            uint256 swapThreshold = crvDistributed.mul(MAX_BPS.add(stableSwapSlippageTolerance)).div(MAX_BPS);
+            if (cvxCrvReceived > swapThreshold) {
                 uint256 cvxCrvMinOut = crvDistributed.mul(MAX_BPS.sub(stableSwapSlippageTolerance)).div(MAX_BPS);
                 _exchange(crvAddress, cvxCrvAddress, crvDistributed, cvxCrvMinOut, 2, true);
             } else {
@@ -181,8 +187,9 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
              * Deposit acquired cvxCRV into the vault and report.
              * Due to the block lock, we will deposit on behalf of the Badger Tree
              */
-            bcvxCrv.depositFor(badgerTreeAddress, cvxCrv.balanceOf(address(this)));
-            uint256 bcvxCrvBalance = bcvxCrv.balanceOf(address(this));
+            uint256 cvxCrvDeposited = cvxCrv.balanceOf(address(this));
+            bcvxCrv.depositFor(badgerTreeAddress, cvxCrvDeposited);
+            uint256 bcvxCrvBalance = cvxCrvDeposited.mul(bcvxCrv.getPricePerFullShare());
             harvested[0].amount = bcvxCrvBalance;
             _processExtraToken(bcvxCrvAddress, bcvxCrvBalance);
         }

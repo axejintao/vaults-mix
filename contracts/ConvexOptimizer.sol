@@ -28,6 +28,7 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
     address private constant convexBooster = 0xF403C135812408BFbE8713b5A23a04b3D48AAE31;
     address private constant convexCrvDepositor = 0x8014595F2AB54cD7c604B00E9fb932176fDc86Ae;
     address private constant curveCvxCrvCrvPool = 0x9D0464996170c6B9e75eED71c68B99dDEDf279e8;
+    address private constant curveCvxBvecvxPool = 0x04c90C198b2eFF55716079bc06d7CCc4aa4d7512;
 
     // Token Addresses
     address private constant crvAddress = 0xD533a949740bb3306d119CC777fa900bA034cd52;
@@ -187,9 +188,8 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
              * Deposit acquired cvxCRV into the vault and report.
              * Due to the block lock, we will deposit on behalf of the Badger Tree
              */
-            uint256 cvxCrvDeposited = cvxCrv.balanceOf(address(this));
-            bcvxCrv.depositFor(badgerTreeAddress, cvxCrvDeposited);
-            uint256 bcvxCrvBalance = cvxCrvDeposited.mul(bcvxCrv.getPricePerFullShare());
+            bcvxCrv.deposit(cvxCrv.balanceOf(address(this)));
+            uint256 bcvxCrvBalance = bcvxCrv.balanceOf(address(this));
             harvested[0].amount = bcvxCrvBalance;
             _processExtraToken(bcvxCrvAddress, bcvxCrvBalance);
         }
@@ -200,6 +200,32 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
         uint256 cvxDistributed = cvxBalance - cvxCompounded;
 
         if (cvxDistributed > 0) {
+            /*
+             * It is possible to get a better rate for CVX:bveCVX from the pool,
+             * we will check the pool swap to verify this case - if the rate is not
+             * favorable then just use the standard deposit instead.
+             *
+             * Token 0: CRV
+             * Token 1: cvxCRV
+             * Usage: get_dy(token0, token1, amount);
+             *
+             * Pool Index: 2
+             * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
+             */
+            uint256 cvxCrvReceived = cvxCrvCrvPool.get_dy(0, 1, crvDistributed);
+            uint256 swapThreshold = crvDistributed.mul(MAX_BPS.add(stableSwapSlippageTolerance)).div(MAX_BPS);
+            if (cvxCrvReceived > swapThreshold) {
+                uint256 cvxCrvMinOut = crvDistributed.mul(MAX_BPS.sub(stableSwapSlippageTolerance)).div(MAX_BPS);
+                _exchange(crvAddress, cvxCrvAddress, crvDistributed, cvxCrvMinOut, 2, true);
+            } else {
+                // Deposit, but do not stake the CRV to get cvxCRV
+                crvDepositor.deposit(crvDistributed, false);
+            }
+
+            /*
+             * Deposit acquired CVX into the vault and report.
+             * Due to the block lock, we will deposit on behalf of the Badger Tree
+             */
             bveCvx.deposit(cvxDistributed);
             uint256 bveCvxBalance = bveCvx.balanceOf(address(this));
             harvested[1].amount = bveCvxBalance;

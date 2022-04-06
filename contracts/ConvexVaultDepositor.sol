@@ -5,6 +5,7 @@ pragma experimental ABIEncoderV2;
 
 import {SafeERC20Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
 import {IERC20Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import {MathUpgradeable} from "@openzeppelin-contracts-upgradeable/math/MathUpgradeable.sol";
 
 import {CurveSwapper} from "deps/CurveSwapper.sol";
 
@@ -62,27 +63,83 @@ contract ConvexVaultDepositor is CurveSwapper {
       cvx.safeApprove(bveCvxAddress, type(uint256).max);
     }
 
-    function _convertCrv(uint256 _amount, uint256 _slippage) internal {
-      /*
-        * It is possible to get a better rate for CRV:cvxCRV from the pool,
-        * we will check the pool swap to verify this case - if the rate is not
-        * favorable then just use the standard deposit instead.
-        *
-        * Token 0: CRV
-        * Token 1: cvxCRV
-        * Usage: get_dy(token0, token1, amount);
-        *
-        * Pool Index: 2
-        * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
-        */
+    /**
+      * @notice It is possible to get a better rate for CRV:cvxCRV from the pool,
+      * we will check the pool swap to verify this case - if the rate is not
+      * favorable then just use the standard deposit instead.
+      *
+      * Token 0: CRV
+      * Token 1: cvxCRV
+      * Usage: get_dy(token0, token1, amount);
+      *
+      * Pool Index: 2
+      * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
+      * 0x9D0464996170c6B9e75eED71c68B99dDEDf279e8
+      *
+      * @param _amount crv conversion amount
+      * @param _slippage slippage in BPS
+      * @return converted amount of cvxcrv received
+      */
+    function _convertCrv(uint256 _amount, uint256 _slippage) internal returns (uint256 converted) {
+      uint256 cvxCrvBalanceBefore = cvxCrv.balanceOf(address(this));
+
       uint256 cvxCrvReceived = cvxCrvCrvPool.get_dy(0, 1, _amount);
       uint256 swapThreshold = _amount.mul(MAX_BPS.add(_slippage)).div(MAX_BPS);
+      uint256 cvxCrvMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
       if (cvxCrvReceived > swapThreshold) {
-          uint256 cvxCrvMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
           _exchange(crvAddress, cvxCrvAddress, _amount, cvxCrvMinOut, 2, true);
       } else {
           // Deposit, but do not stake the CRV to get cvxCRV
           crvDepositor.deposit(_amount, false);
       }
+
+      uint256 cvxCrvBalanceAfter = cvxCrv.balanceOf(address(this));
+      uint256 cvxCrvGained = cvxCrvBalanceAfter - cvxCrvBalanceBefore;
+      // Ensure our choice actually resulted in an optimized action
+      require(cvxCrvGained > MathUpgradeable.max(cvxCrvMinOut, cvxCrvBalanceBefore), "INVALID_CRV_CONVERSION");
+
+      return cvxCrvGained;
+    }
+
+    /**
+      * @notice It is possible to get a better rate for CRV:cvxCRV from the pool,
+      * we will check the pool swap to verify this case - if the rate is not
+      * favorable then just use the standard deposit instead.
+      *
+      * Token 0: CVX
+      * Token 1: bveCVX
+      * Usage: get_dy(token0, token1, amount);
+      *
+      * Pool Index: 0
+      * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
+      * 0x04c90C198b2eFF55716079bc06d7CCc4aa4d7512
+      *
+      * @param _amount crv conversion amount
+      * @param _slippage slippage in BPS
+      * @return converted amount of cvxcrv received
+      */
+    function _convertCvx(uint256 _amount, uint256 _slippage) internal returns (uint256 converted) {
+      uint256 cvxBalanceBefore = cvx.balanceOf(address(this));
+
+      // temporarily only swap in to bveCVX
+      uint256 bveCvxMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
+      _exchange(cvxAddress, bveCvxAddress, _amount, bveCvxMinOut, 0, true);
+
+      // TODO: enable this snippet, removing the above once bveCVX vault is v1.5
+      // uint256 cvxReceived = cvxBvecvxPool.get_dy(0, 1, _amount);
+      // uint256 swapThreshold = _amount.mul(MAX_BPS.add(_slippage)).div(MAX_BPS);
+      // if (cvxReceived > swapThreshold) {
+      //     uint256 bveCvxMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
+      //     _exchange(cvxAddress, bveCvxAddress, _amount, bveCvxMinOut, 0, true);
+      // } else {
+      //     bveCvx.deposit(cvxReceived);
+      // }
+
+      uint256 cvxBalanceAfter = cvx.balanceOf(address(this));
+      uint256 cvxGained = cvxBalanceAfter - cvxBalanceBefore;
+      // Ensure our choice actually resulted in an optimized action
+      require(cvxGained > MathUpgradeable.max(bveCvxMinOut, cvxBalanceBefore), "INVALID_CVX_CONVERSION");
+
+      return cvxGained;
     }
 }

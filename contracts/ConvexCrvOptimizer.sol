@@ -40,7 +40,7 @@ contract ConvexCrvOptimizer is BaseStrategy, ConvexVaultDepositor {
 
         want = _wantConfig[0];
         stableSwapSlippageTolerance = _stableSwapSlippageTolerance;
-        
+
         _setupApprovals();
     }
 
@@ -98,109 +98,36 @@ contract ConvexCrvOptimizer is BaseStrategy, ConvexVaultDepositor {
     }
 
     function _harvest() internal override returns (TokenAmount[] memory harvested) {
-        uint256 currentWant = balanceOfWant();
-        uint256 baseRewardsCount = 2 + autoCompoundRatio > 0 ? 1 : 0;
         uint256 extraRewardsCount = baseRewardsPool.extraRewardsLength();
-        harvested = new TokenAmount[](baseRewardsCount + extraRewardsCount);
-        harvested[0].token = bcvxCrvAddress;
+        harvested = new TokenAmount[](2);
+        harvested[0].token = want;
         harvested[1].token = bveCvxAddress;
-        harvested[2].token = want;
 
         // Claim vault CRV rewards + extra incentives
         baseRewardsPool.getReward(address(this), true);
 
         // Calculate how much CRV to compound and distribute
-        uint256 crvBalance = crv.balanceOf(address(this));
-        uint256 crvCompounded = crvBalance.mul(autoCompoundRatio).div(MAX_BPS);
-        uint256 crvDistributed = crvBalance - crvCompounded;
+        uint256 crvEarned = crv.balanceOf(address(this));
 
         // Maximize our cvxCRV acquired and deposit into bcvxCRV
-        if (crvDistributed > 0) {
-            /*
-             * It is possible to get a better rate for CRV:cvxCRV from the pool,
-             * we will check the pool swap to verify this case - if the rate is not
-             * favorable then just use the standard deposit instead.
-             *
-             * Token 0: CRV
-             * Token 1: cvxCRV
-             * Usage: get_dy(token0, token1, amount);
-             *
-             * Pool Index: 2
-             * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
-             */
-            uint256 cvxCrvReceived = cvxCrvCrvPool.get_dy(0, 1, crvDistributed);
-            uint256 swapThreshold = crvDistributed.mul(MAX_BPS.add(stableSwapSlippageTolerance)).div(MAX_BPS);
-            if (cvxCrvReceived > swapThreshold) {
-                uint256 cvxCrvMinOut = crvDistributed.mul(MAX_BPS.sub(stableSwapSlippageTolerance)).div(MAX_BPS);
-                _exchange(crvAddress, cvxCrvAddress, crvDistributed, cvxCrvMinOut, 2, true);
-            } else {
-                // Deposit, but do not stake the CRV to get cvxCRV
-                crvDepositor.deposit(crvDistributed, false);
-            }
-
-            /*
-             * Deposit acquired cvxCRV into the vault and report.
-             * Due to the block lock, we will deposit on behalf of the Badger Tree
-             */
-            bcvxCrv.deposit(cvxCrv.balanceOf(address(this)));
-            uint256 bcvxCrvBalance = bcvxCrv.balanceOf(address(this));
-            harvested[0].amount = bcvxCrvBalance;
-            _processExtraToken(bcvxCrvAddress, bcvxCrvBalance);
+        if (crvEarned > 0) {
+            uint256 cvxCrvBalance = cvxCrv.balanceOf(address(this));
+            uint256 cvxCrvGained = _convertCrv(crvEarned, stableSwapSlippageTolerance);
+            uint256 cvxCrvHarvested = cvxCrvBalance + cvxCrvGained;
+            harvested[0].amount = cvxCrvHarvested;
+            baseRewardsPool.stake(cvxCrvHarvested);
+            _reportToVault(cvxCrvHarvested);
         }
 
         // Calculate how much CVX to compound and distribute
-        uint256 cvxBalance = cvx.balanceOf(address(this));
-        uint256 cvxCompounded = cvxBalance.mul(autoCompoundRatio).div(MAX_BPS);
-        uint256 cvxDistributed = cvxBalance - cvxCompounded;
+        uint256 cvxEarned = cvx.balanceOf(address(this));
 
-        if (cvxDistributed > 0) {
-            /*
-             * It is possible to get a better rate for CVX:bveCVX from the pool,
-             * we will check the pool swap to verify this case - if the rate is not
-             * favorable then just use the standard deposit instead.
-             *
-             * Token 0: CRV
-             * Token 1: cvxCRV
-             * Usage: get_dy(token0, token1, amount);
-             *
-             * Pool Index: 2
-             * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
-             */
-            uint256 cvxCrvReceived = cvxCrvCrvPool.get_dy(0, 1, crvDistributed);
-            uint256 swapThreshold = crvDistributed.mul(MAX_BPS.add(stableSwapSlippageTolerance)).div(MAX_BPS);
-            if (cvxCrvReceived > swapThreshold) {
-                uint256 cvxCrvMinOut = crvDistributed.mul(MAX_BPS.sub(stableSwapSlippageTolerance)).div(MAX_BPS);
-                _exchange(crvAddress, cvxCrvAddress, crvDistributed, cvxCrvMinOut, 2, true);
-            } else {
-                // Deposit, but do not stake the CRV to get cvxCRV
-                crvDepositor.deposit(crvDistributed, false);
-            }
-
-            /*
-             * Deposit acquired CVX into the vault and report.
-             * Due to the block lock, we will deposit on behalf of the Badger Tree
-             */
-            bveCvx.deposit(cvxDistributed);
+        if (cvxEarned > 0) {
             uint256 bveCvxBalance = bveCvx.balanceOf(address(this));
-            harvested[1].amount = bveCvxBalance;
-            _processExtraToken(bveCvxAddress, bveCvxBalance);
-        }
-
-        // TODO: Handle the extra rewards
-        // This is probably an opinionated area, emit as a placeholder
-        for (uint256 i = 0; i < extraRewardsCount; i++) {
-            address extraRewardsPoolAddress = baseRewardsPool.extraRewards(i);
-            IBaseRewardsPool extraRewardsPool = IBaseRewardsPool(extraRewardsPoolAddress);
-            address rewardToken = extraRewardsPool.rewardToken();
-            // Handle an edge case where a pool has CVX or CRV bonus rewards
-            if (rewardToken == cvxAddress || rewardToken == crvAddress) {
-                continue;
-            }
-            uint256 rewardTokenBalance = IERC20Upgradeable(rewardToken).balanceOf(address(this));
-            if (rewardTokenBalance > 0) {
-                harvested[i + 3].amount = rewardTokenBalance;
-                _processExtraToken(rewardToken, rewardTokenBalance);
-            }
+            uint256 bveCvxGained = _convertCvx(cvxEarned, stableSwapSlippageTolerance);
+            uint256 cvxHarvested = bveCvxBalance + bveCvxGained;
+            harvested[1].amount = cvxHarvested;
+            _processExtraToken(bveCvxAddress, cvxHarvested);
         }
     }
 

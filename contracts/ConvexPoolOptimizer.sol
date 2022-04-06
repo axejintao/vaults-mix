@@ -12,6 +12,7 @@ import {BaseStrategy} from "@badger-finance/BaseStrategy.sol";
 import {CurveSwapper} from "deps/CurveSwapper.sol";
 import {UniswapSwapper} from "deps/UniswapSwapper.sol";
 import {TokenSwapPathRegistry} from "deps/TokenSwapPathRegistry.sol";
+import {ConvexVaultDepositor} from "./ConvexVaultDepositor.sol";
 
 import "interfaces/convex/IBooster.sol";
 import "interfaces/convex/ICrvDepositor.sol";
@@ -19,40 +20,18 @@ import "interfaces/convex/IBaseRewardsPool.sol";
 import "interfaces/badger/IVault.sol";
 import "interfaces/curve/ICurveFi.sol";
 
-contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwapPathRegistry {
+contract ConvexPoolOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwapPathRegistry, ConvexVaultDepositor {
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using SafeMathUpgradeable for uint256;
 
     // Curve + Convex Adresses
-    address private constant curveAdressProvider = 0x0000000022D53366457F9d5E68Ec105046FC4383;
     address private constant convexBooster = 0xF403C135812408BFbE8713b5A23a04b3D48AAE31;
-    address private constant convexCrvDepositor = 0x8014595F2AB54cD7c604B00E9fb932176fDc86Ae;
-    address private constant curveCvxCrvCrvPool = 0x9D0464996170c6B9e75eED71c68B99dDEDf279e8;
-    address private constant curveCvxBvecvxPool = 0x04c90C198b2eFF55716079bc06d7CCc4aa4d7512;
-
-    // Token Addresses
-    address private constant crvAddress = 0xD533a949740bb3306d119CC777fa900bA034cd52;
-    address private constant cvxAddress = 0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B;
-    address private constant cvxCrvAddress = 0x62B9c7356A2Dc64a1969e19C23e4f579F9810Aa7;
-    address private constant bveCvxAddress = 0xfd05D3C7fe2924020620A8bE4961bBaA747e6305;
-    address private constant bcvxCrvAddress = 0x2B5455aac8d64C14786c3a29858E43b5945819C0;
 
     // Badger Infrastructure Addresses
     address private constant badgerTreeAddress = 0x660802Fc641b154aBA66a62137e71f331B6d787A;
 
-    // Tokens
-    IERC20Upgradeable private constant crv = IERC20Upgradeable(crvAddress);
-    IERC20Upgradeable private constant cvx = IERC20Upgradeable(cvxAddress);
-    IERC20Upgradeable private constant cvxCrv = IERC20Upgradeable(cvxCrvAddress);
-
-    // Badger Vaults
-    IVault private constant bveCvx = IVault(bveCvxAddress);
-    IVault private constant bcvxCrv = IVault(bcvxCrvAddress);
-
     // Curve + Convex Contracts
     IBooster private constant booster = IBooster(convexBooster);
-    ICrvDepositor private constant crvDepositor = ICrvDepositor(convexCrvDepositor);
-    ICurveFi private constant cvxCrvCrvPool = ICurveFi(curveCvxCrvCrvPool);
 
     // Strategy Specific Information
     uint256 public pid;
@@ -85,9 +64,7 @@ contract ConvexOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, TokenSwa
 
         // Setup Token Approvals
         IERC20Upgradeable(want).safeApprove(convexBooster, type(uint256).max);
-        crv.safeApprove(convexCrvDepositor, type(uint256).max);
-        crv.safeApprove(curveCvxCrvCrvPool, type(uint256).max);
-        cvxCrv.safeApprove(bcvxCrvAddress, type(uint256).max);
+        _setupApprovals();
     }
 
     /// @dev Return the name of the strategy

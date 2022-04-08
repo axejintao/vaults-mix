@@ -83,7 +83,7 @@ contract ConvexCrvOptimizer is BaseStrategy, UniswapSwapper, ConvexVaultDeposito
         protectedTokens[3] = THREE_CRV_ADDRESS;
         protectedTokens[4] = BVECVX_ADDRESS;
         protectedTokens[5] = BCVXCRV_ADDRESS;
-        protectedTokens[5] = USDC_ADDRESS;
+        protectedTokens[6] = USDC_ADDRESS;
         return protectedTokens;
     }
 

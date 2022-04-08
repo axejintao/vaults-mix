@@ -23,77 +23,77 @@ contract ConvexVaultDepositor is CurveSwapper {
     uint256 private constant MAX_BPS = 10_000;
 
     // Pool Addresses
-    address internal constant cvxCrvCrvPoolAddress = 0x9D0464996170c6B9e75eED71c68B99dDEDf279e8;
-    address internal constant cvxBvecvxPoolAddress = 0x04c90C198b2eFF55716079bc06d7CCc4aa4d7512;
+    address internal constant CVXCRV_CRV_POOL_ADDRESS = 0x9D0464996170c6B9e75eED71c68B99dDEDf279e8;
+    address internal constant CVX_BVECVX_POOL_ADDRESS = 0x04c90C198b2eFF55716079bc06d7CCc4aa4d7512;
 
     // Token Addresses
-    address internal constant crvAddress = 0xD533a949740bb3306d119CC777fa900bA034cd52;
-    address internal constant cvxAddress = 0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B;
-    address internal constant cvxCrvAddress = 0x62B9c7356A2Dc64a1969e19C23e4f579F9810Aa7;
+    address internal constant CRV_ADDRESS = 0xD533a949740bb3306d119CC777fa900bA034cd52;
+    address internal constant CVX_ADDRESS = 0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B;
+    address internal constant CVXCRV_ADDRESS = 0x62B9c7356A2Dc64a1969e19C23e4f579F9810Aa7;
 
     // Infrastructure Addresses
-    address internal constant crvDepositorAddress = 0x8014595F2AB54cD7c604B00E9fb932176fDc86Ae;
-    address internal constant bveCvxAddress = 0xfd05D3C7fe2924020620A8bE4961bBaA747e6305;
-    address internal constant bcvxCrvAddress = 0x2B5455aac8d64C14786c3a29858E43b5945819C0;
+    address internal constant CRV_DEPOSITOR_ADDRESS = 0x8014595F2AB54cD7c604B00E9fb932176fDc86Ae;
+    address internal constant BVECVX_ADDRESS = 0xfd05D3C7fe2924020620A8bE4961bBaA747e6305;
+    address internal constant BCVXCRV_ADDRESS = 0x2B5455aac8d64C14786c3a29858E43b5945819C0;
 
     // Pools
-    ICurveFi internal constant cvxCrvCrvPool = ICurveFi(cvxCrvCrvPoolAddress);
-    ICurveFi internal constant cvxBvecvxPool = ICurveFi(cvxBvecvxPoolAddress);
+    ICurveFi public constant CRV_CVXCRV_POOL = ICurveFi(CVXCRV_CRV_POOL_ADDRESS);
+    ICurveFi public constant CVX_BVECVX_POOL = ICurveFi(CVX_BVECVX_POOL_ADDRESS);
 
     // Tokens
-    IERC20Upgradeable internal constant crv = IERC20Upgradeable(crvAddress);
-    IERC20Upgradeable internal constant cvx = IERC20Upgradeable(cvxAddress);
-    IERC20Upgradeable internal constant cvxCrv = IERC20Upgradeable(cvxCrvAddress);
+    IERC20Upgradeable public constant CRV = IERC20Upgradeable(CRV_ADDRESS);
+    IERC20Upgradeable public constant CVX = IERC20Upgradeable(CVX_ADDRESS);
+    IERC20Upgradeable public constant CVXCRV = IERC20Upgradeable(CVXCRV_ADDRESS);
 
     // Convex Contracts
-    ICrvDepositor internal constant crvDepositor = ICrvDepositor(crvDepositorAddress);
+    ICrvDepositor public constant CRV_DEPOSITOR = ICrvDepositor(CRV_DEPOSITOR_ADDRESS);
 
     // Badger Vaults
-    IVault internal constant bcvxCrv = IVault(bcvxCrvAddress);
-    IVault internal constant bveCvx = IVault(bveCvxAddress);
+    IVault public constant BCVXCRV = IVault(BCVXCRV_ADDRESS);
+    IVault public constant BVECVX = IVault(BVECVX_ADDRESS);
 
     /**
      * @dev Allow token swaps across curve pools for staking assets.
      */
     function _setupApprovals() internal {
-      crv.safeApprove(crvDepositorAddress, type(uint256).max);
-      crv.safeApprove(cvxCrvCrvPoolAddress, type(uint256).max);
-      cvxCrv.safeApprove(bcvxCrvAddress, type(uint256).max);
-      cvx.safeApprove(cvxBvecvxPoolAddress, type(uint256).max);
-      cvx.safeApprove(bveCvxAddress, type(uint256).max);
+      CRV.safeApprove(CRV_DEPOSITOR_ADDRESS, type(uint256).max);
+      CRV.safeApprove(CVXCRV_CRV_POOL_ADDRESS, type(uint256).max);
+      CVXCRV.safeApprove(BCVXCRV_ADDRESS, type(uint256).max);
+      CVX.safeApprove(CVX_BVECVX_POOL_ADDRESS, type(uint256).max);
+      CVX.safeApprove(BVECVX_ADDRESS, type(uint256).max);
     }
 
     /**
-      * @notice It is possible to get a better rate for CRV:cvxCRV from the pool,
+      * @notice It is possible to get a better rate for CRV:CVXCRV from the pool,
       * we will check the pool swap to verify this case - if the rate is not
       * favorable then just use the standard deposit instead.
       *
       * Token 0: CRV
-      * Token 1: cvxCRV
+      * Token 1: CVXCRV
       * Usage: get_dy(token0, token1, amount);
       *
       * Pool Index: 2
       * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
       * 0x9D0464996170c6B9e75eED71c68B99dDEDf279e8
       *
-      * @param _amount crv conversion amount
+      * @param _amount CRV conversion amount
       * @param _slippage slippage in BPS
-      * @return converted amount of cvxcrv received
+      * @return converted amount of CVXCRV received
       */
     function _convertCrv(uint256 _amount, uint256 _slippage) internal returns (uint256 converted) {
-      uint256 cvxCrvBalanceBefore = cvxCrv.balanceOf(address(this));
+      uint256 cvxCrvBalanceBefore = CVXCRV.balanceOf(address(this));
 
-      uint256 cvxCrvReceived = cvxCrvCrvPool.get_dy(0, 1, _amount);
+      uint256 cvxCrvReceived = CRV_CVXCRV_POOL.get_dy(0, 1, _amount);
       uint256 swapThreshold = _amount.mul(MAX_BPS.add(_slippage)).div(MAX_BPS);
       uint256 cvxCrvMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
       if (cvxCrvReceived > swapThreshold) {
-          _exchange(crvAddress, cvxCrvAddress, _amount, cvxCrvMinOut, 2, true);
+          _exchange(CRV_ADDRESS, CVXCRV_ADDRESS, _amount, cvxCrvMinOut, 2, true);
       } else {
-          // Deposit, but do not stake the CRV to get cvxCRV
-          crvDepositor.deposit(_amount, false);
+          // Deposit, but do not stake the CRV to get CVXCRV
+          CRV_DEPOSITOR.deposit(_amount, false);
       }
 
-      uint256 cvxCrvBalanceAfter = cvxCrv.balanceOf(address(this));
+      uint256 cvxCrvBalanceAfter = CVXCRV.balanceOf(address(this));
       uint256 cvxCrvGained = cvxCrvBalanceAfter - cvxCrvBalanceBefore;
       // Ensure our choice actually resulted in an optimized action
       require(cvxCrvGained > MathUpgradeable.max(cvxCrvMinOut, _amount), "INVALID_CRV_CONVERSION");
@@ -102,40 +102,40 @@ contract ConvexVaultDepositor is CurveSwapper {
     }
 
     /**
-      * @notice It is possible to get a better rate for CVX:bveCVX from the pool,
+      * @notice It is possible to get a better rate for CVX:BVECVX from the pool,
       * we will check the pool swap to verify this case - if the rate is not
       * favorable then just use the standard deposit instead.
       *
       * Token 0: CVX
-      * Token 1: bveCVX
+      * Token 1: BVECVX
       * Usage: get_dy(token0, token1, amount);
       *
       * Pool Index: 0
       * Usage: _exchange(in, out, amount, minOut, poolIndex, isFactory);
       * 0x04c90C198b2eFF55716079bc06d7CCc4aa4d7512
       *
-      * @param _amount crv conversion amount
+      * @param _amount CRV conversion amount
       * @param _slippage slippage in BPS
-      * @return converted amount of cvxcrv received
+      * @return converted amount of CVXCRV received
       */
     function _convertCvx(uint256 _amount, uint256 _slippage) internal returns (uint256 converted) {
-      uint256 bveCvxBalanceBefore = bveCvx.balanceOf(address(this));
+      uint256 bveCvxBalanceBefore = BVECVX.balanceOf(address(this));
 
-      // temporarily only swap in to bveCVX
+      // temporarily only swap in to BVECVX
       uint256 bveCvxMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
-      _exchange(cvxAddress, bveCvxAddress, _amount, bveCvxMinOut, 0, true);
+      _exchange(CVX_ADDRESS, BVECVX_ADDRESS, _amount, bveCvxMinOut, 0, true);
 
-      // TODO: enable this snippet, removing the above once bveCVX vault is v1.5
-      // uint256 cvxReceived = cvxBvecvxPool.get_dy(0, 1, _amount);
+      // TODO: enable this snippet, removing the above once BVECVX vault is v1.5
+      // uint256 cvxReceived = CVX_BVECVX_POOL.get_dy(0, 1, _amount);
       // uint256 swapThreshold = _amount.mul(MAX_BPS.add(_slippage)).div(MAX_BPS);
       // if (cvxReceived > swapThreshold) {
       //     uint256 bveCvxMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
-      //     _exchange(cvxAddress, bveCvxAddress, _amount, bveCvxMinOut, 0, true);
+      //     _exchange(CVX_ADDRESS, BVECVX_ADDRESS, _amount, bveCvxMinOut, 0, true);
       // } else {
-      //     bveCvx.deposit(cvxReceived);
+      //     BVECVX.deposit(cvxReceived);
       // }
 
-      uint256 bveCvxBalanceAfter = bveCvx.balanceOf(address(this));
+      uint256 bveCvxBalanceAfter = BVECVX.balanceOf(address(this));
       uint256 bveCvxGained = bveCvxBalanceAfter - bveCvxBalanceBefore;
       // Ensure our choice actually resulted in an optimized action
       require(bveCvxGained > MathUpgradeable.max(bveCvxMinOut, _amount), "INVALID_CVX_CONVERSION");
@@ -143,10 +143,10 @@ contract ConvexVaultDepositor is CurveSwapper {
       return bveCvxGained;
     }
 
-    /// @dev Adapted from https://docs.convexfinance.com/convexfinanceintegration/cvx-minting
+    /// @dev Adapted from https://docs.convexfinance.com/convexfinanceintegration/CVX-minting
     /// @notice Only used for view functions to estimate APR
     function getCvxMint(uint256 _earned) internal view returns (uint256) {
-        uint256 cvxTotalSupply = cvx.totalSupply();
+        uint256 cvxTotalSupply = CVX.totalSupply();
         uint256 currentCliff = cvxTotalSupply / 100000e18;
         if (currentCliff < 1000) {
             uint256 remaining = 1000 - currentCliff;

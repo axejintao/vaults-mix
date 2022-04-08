@@ -89,7 +89,7 @@ def test_is_acceptable_apr(vault, strategy, want, keeper, deployer):
     # Harvest should be non-zero if strat is printing
     assert vault.lastHarvestAmount() > 0
     # Ensure strategy reports correct harvestedAmount
-    assert vault.assetsAtLastHarvest() == vault_balance1
+    assert vault.assetsAtLastHarvest() + vault.lastHarvestAmount() == vault_balance1
 
     #  Over a year
     apr = 52 * vault.lastHarvestAmount() / vault.assetsAtLastHarvest()

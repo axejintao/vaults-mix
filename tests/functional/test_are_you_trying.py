@@ -38,12 +38,11 @@ def test_are_you_trying(deployer, vault, strategy, want, governance):
 
     ## TEST 2: Is the Harvest profitable?
     harvest = strategy.harvest({"from": governance})
-    # event = harvest.events["Harvested"]
+    event = harvest.events["Harvested"]
     # If it doesn't print, we don't want it
-    # assert event["amount"] > 0
+    assert event["amount"] > 0
 
     ## TEST 3: Does the strategy emit anything?
     event = harvest.events["TreeDistribution"]
-    print(event);
-    assert event["token"] == "TOKEN" ## Add token you emit
+    assert event["token"] == "0xfd05D3C7fe2924020620A8bE4961bBaA747e6305" ## Add token you emit
     assert event["amount"] > 0 ## We want it to emit something

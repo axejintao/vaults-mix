@@ -58,8 +58,8 @@ contract ConvexVaultDepositor is CurveSwapper {
     function _setupApprovals() internal {
       crv.safeApprove(crvDepositorAddress, type(uint256).max);
       crv.safeApprove(cvxCrvCrvPoolAddress, type(uint256).max);
-      cvx.safeApprove(cvxBvecvxPoolAddress, type(uint256).max);
       cvxCrv.safeApprove(bcvxCrvAddress, type(uint256).max);
+      cvx.safeApprove(cvxBvecvxPoolAddress, type(uint256).max);
       cvx.safeApprove(bveCvxAddress, type(uint256).max);
     }
 
@@ -96,13 +96,13 @@ contract ConvexVaultDepositor is CurveSwapper {
       uint256 cvxCrvBalanceAfter = cvxCrv.balanceOf(address(this));
       uint256 cvxCrvGained = cvxCrvBalanceAfter - cvxCrvBalanceBefore;
       // Ensure our choice actually resulted in an optimized action
-      require(cvxCrvGained > MathUpgradeable.max(cvxCrvMinOut, cvxCrvBalanceBefore), "INVALID_CRV_CONVERSION");
+      require(cvxCrvGained > MathUpgradeable.max(cvxCrvMinOut, _amount), "INVALID_CRV_CONVERSION");
 
       return cvxCrvGained;
     }
 
     /**
-      * @notice It is possible to get a better rate for CRV:cvxCRV from the pool,
+      * @notice It is possible to get a better rate for CVX:bveCVX from the pool,
       * we will check the pool swap to verify this case - if the rate is not
       * favorable then just use the standard deposit instead.
       *
@@ -119,7 +119,7 @@ contract ConvexVaultDepositor is CurveSwapper {
       * @return converted amount of cvxcrv received
       */
     function _convertCvx(uint256 _amount, uint256 _slippage) internal returns (uint256 converted) {
-      uint256 cvxBalanceBefore = cvx.balanceOf(address(this));
+      uint256 bveCvxBalanceBefore = bveCvx.balanceOf(address(this));
 
       // temporarily only swap in to bveCVX
       uint256 bveCvxMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
@@ -135,11 +135,28 @@ contract ConvexVaultDepositor is CurveSwapper {
       //     bveCvx.deposit(cvxReceived);
       // }
 
-      uint256 cvxBalanceAfter = cvx.balanceOf(address(this));
-      uint256 cvxGained = cvxBalanceAfter - cvxBalanceBefore;
+      uint256 bveCvxBalanceAfter = bveCvx.balanceOf(address(this));
+      uint256 bveCvxGained = bveCvxBalanceAfter - bveCvxBalanceBefore;
       // Ensure our choice actually resulted in an optimized action
-      require(cvxGained > MathUpgradeable.max(bveCvxMinOut, cvxBalanceBefore), "INVALID_CVX_CONVERSION");
+      require(bveCvxGained > MathUpgradeable.max(bveCvxMinOut, _amount), "INVALID_CVX_CONVERSION");
 
-      return cvxGained;
+      return bveCvxGained;
+    }
+
+    /// @dev Adapted from https://docs.convexfinance.com/convexfinanceintegration/cvx-minting
+    /// @notice Only used for view functions to estimate APR
+    function getCvxMint(uint256 _earned) internal view returns (uint256) {
+        uint256 cvxTotalSupply = cvx.totalSupply();
+        uint256 currentCliff = cvxTotalSupply / 100000e18;
+        if (currentCliff < 1000) {
+            uint256 remaining = 1000 - currentCliff;
+            uint256 cvxEarned = (_earned * remaining) / 1000;
+            uint256 amountTillMax = 100000000e18 - cvxTotalSupply;
+            if (cvxEarned > amountTillMax) {
+                cvxEarned = amountTillMax;
+            }
+            return cvxEarned;
+        }
+        return 0;
     }
 }

@@ -1,7 +1,7 @@
 import time
 
 from brownie import (
-    ConvexOptimizer,
+    ConvexCrvOptimizer,
     TheVault,
     interface,
     accounts,
@@ -116,27 +116,27 @@ def deployed(want, deployer, strategist, keeper, guardian, governance, proxyAdmi
     vault.setStrategist(deployer, {"from": governance})
     # NOTE: TheVault starts unpaused
 
-    strategy = ConvexOptimizer.deploy({"from": deployer})
-    strategy.initialize(vault, [want], 72, 50, 0);
+    strategy = ConvexCrvOptimizer.deploy({"from": deployer})
+    strategy.initialize(vault, [want], 50);
     # NOTE: Strategy starts unpaused
 
     vault.setStrategy(strategy, {"from": governance})
 
     ## Grant contract access from strategy to cvxCRV Helper Vault
-    cvxCrvHelperVault = interface.IVault("0x2B5455aac8d64C14786c3a29858E43b5945819C0")
-    cvxCrvHelperGov = accounts.at(cvxCrvHelperVault.governance(), force=True)
-    cvxCrvHelperVault.approveContractAccess(strategy.address, {"from": cvxCrvHelperGov})
+    # cvxCrvHelperVault = interface.IVault("0x2B5455aac8d64C14786c3a29858E43b5945819C0")
+    # cvxCrvHelperGov = accounts.at(cvxCrvHelperVault.governance(), force=True)
+    # cvxCrvHelperVault.approveContractAccess(strategy.address, {"from": cvxCrvHelperGov})
 
     ## Grant contract access from strategy to CVX Helper Vault
-    cvxHelperVault = interface.IVault("0xfd05D3C7fe2924020620A8bE4961bBaA747e6305")
-    cvxHelperGov = accounts.at(cvxHelperVault.governance(), force=True)
-    cvxHelperVault.approveContractAccess(strategy.address, {"from": cvxHelperGov})
+    # cvxHelperVault = interface.IVault("0xfd05D3C7fe2924020620A8bE4961bBaA747e6305")
+    # cvxHelperGov = accounts.at(cvxHelperVault.governance(), force=True)
+    # cvxHelperVault.approveContractAccess(strategy.address, {"from": cvxHelperGov})
 
     ## Reset rewards if they are set to expire within the next 4 days or are expired already
     rewardsPool = interface.IBaseRewardsPool(strategy.baseRewardsPool())
     if rewardsPool.periodFinish() - int(time.time()) < days(4):
         booster = interface.IBooster("0xF403C135812408BFbE8713b5A23a04b3D48AAE31")
-        booster.earmarkRewards(72, {"from": deployer})
+        booster.earmarkRewards(0, {"from": deployer})
         console.print("[green]BaseRewardsPool expired or expiring soon - it was reset![/green]")
 
     return DotMap(

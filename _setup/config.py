@@ -1,8 +1,8 @@
 ## Token deposited in the vault
-WANT = "0xf3a43307dcafa93275993862aae628fcb50dc768"
+WANT = "0x62B9c7356A2Dc64a1969e19C23e4f579F9810Aa7"
 
 ## Account that has a lot of want (we will "borrow it" for testing)
-WHALE_ADDRESS = "0xab1927160ec7414c6fa71763e2a9f3d107c126dd"
+WHALE_ADDRESS = "0x3fe65692bfcd0e6cf84cb1e7d24108e434a7587e"
 
 ## Address for Badger Registry, used to fill in default addresses
 ## See: https://github.com/Badger-Finance/badger-registry

@@ -9,23 +9,34 @@ import {MathUpgradeable} from "@openzeppelin-contracts-upgradeable/math/MathUpgr
 import {SafeERC20Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
 import {BaseStrategy} from "@badger-finance/BaseStrategy.sol";
 
+import {UniswapSwapper} from "deps/UniswapSwapper.sol";
+import {TokenSwapPathRegistry} from "deps/TokenSwapPathRegistry.sol";
 import {ConvexVaultDepositor} from "./ConvexVaultDepositor.sol";
 
 import {IBaseRewardsPool} from "interfaces/convex/IBaseRewardsPool.sol";
 
-contract ConvexCrvOptimizer is BaseStrategy, ConvexVaultDepositor {
+contract ConvexCrvOptimizer is BaseStrategy, UniswapSwapper, ConvexVaultDepositor, TokenSwapPathRegistry {
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using SafeMathUpgradeable for uint256;
 
     // Token Addresses
     address private constant threeCrvAddress = 0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490;
+    address private constant usdcAddress = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address private constant wethAddress = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
     // Infrastructure Addresses
     address private constant cvxCrvRewardsAddress = 0x3Fe65692bfCD0e6CF84cB1E7d24108E434A7587e;
+    address private constant threeCrvSwap = 0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7;
+
+    // Tokens
+    IERC20Upgradeable private constant threeCrv = IERC20Upgradeable(threeCrvAddress);
+    IERC20Upgradeable private constant usdc = IERC20Upgradeable(usdcAddress);
 
     // Strategy Specific Information
     IBaseRewardsPool public baseRewardsPool = IBaseRewardsPool(cvxCrvRewardsAddress);
     uint256 public stableSwapSlippageTolerance;
+
+    event Debug(string name, uint256 value);
 
     /**
      * @param _vault Strategy vault implementation
@@ -41,7 +52,14 @@ contract ConvexCrvOptimizer is BaseStrategy, ConvexVaultDepositor {
         want = _wantConfig[0];
         stableSwapSlippageTolerance = _stableSwapSlippageTolerance;
 
+        address[] memory path = new address[](3);
+        path[0] = usdcAddress;
+        path[1] = wethAddress;
+        path[2] = crvAddress;
+        _setTokenSwapPath(usdcAddress, crvAddress, path);
+
         _setupApprovals();
+        cvxCrv.safeApprove(cvxCrvRewardsAddress, type(uint256).max);
     }
 
     /// @dev Return the name of the strategy
@@ -70,7 +88,7 @@ contract ConvexCrvOptimizer is BaseStrategy, ConvexVaultDepositor {
 
     /// @dev Withdraw all funds, this is used for migrations, most of the time for emergency reasons
     function _withdrawAll() internal override {
-        baseRewardsPool.withdrawAndUnwrap(balanceOfPool(), false);
+        baseRewardsPool.withdrawAll(false);
     }
 
     /// @dev Withdraw `_amount` of want, so that it can be sent to the vault / depositor
@@ -82,7 +100,7 @@ contract ConvexCrvOptimizer is BaseStrategy, ConvexVaultDepositor {
         // If we lack sufficient idle want, withdraw the difference from the strategy position
         if (_preWant < _amount) {
             uint256 _toWithdraw = _amount.sub(_preWant);
-            baseRewardsPool.withdrawAndUnwrap(_toWithdraw, false);
+            baseRewardsPool.withdraw(_toWithdraw, false);
         }
 
         // Confirm how much want we actually end up with
@@ -106,17 +124,31 @@ contract ConvexCrvOptimizer is BaseStrategy, ConvexVaultDepositor {
         // Claim vault CRV rewards + extra incentives
         baseRewardsPool.getReward(address(this), true);
 
+        uint256 threeCrvEarned = threeCrv.balanceOf(address(this));
+
+        if (threeCrvEarned > 0) {
+            // Virtual Price of 3crv >= 1, ask for at least 1:1 back before slippage, convert to usdc decimals
+            uint256 usdcMinOut = threeCrvEarned.mul(MAX_BPS.sub(stableSwapSlippageTolerance)).div(MAX_BPS.mul(1e12));
+            _remove_liquidity_one_coin(threeCrvSwap, threeCrvEarned, 1, usdcMinOut);
+            uint256 usdcBalance = usdc.balanceOf(address(this));
+            require(usdcBalance >= usdcMinOut, "INVALID_3CRV_CONVERT");
+            _swapExactTokensForTokens(
+                sushiswap,
+                usdcAddress,
+                usdcBalance,
+                getTokenSwapPath(usdcAddress, crvAddress)
+            );
+        }
+
         // Calculate how much CRV to compound and distribute
         uint256 crvEarned = crv.balanceOf(address(this));
 
         // Maximize our cvxCRV acquired and deposit into bcvxCRV
         if (crvEarned > 0) {
-            uint256 cvxCrvBalance = cvxCrv.balanceOf(address(this));
-            uint256 cvxCrvGained = _convertCrv(crvEarned, stableSwapSlippageTolerance);
-            uint256 cvxCrvHarvested = cvxCrvBalance + cvxCrvGained;
-            harvested[0].amount = cvxCrvHarvested;
-            baseRewardsPool.stake(cvxCrvHarvested);
+            uint256 cvxCrvHarvested = _convertCrv(crvEarned, stableSwapSlippageTolerance);
+            _deposit(cvxCrvHarvested);
             _reportToVault(cvxCrvHarvested);
+            harvested[0].amount = cvxCrvHarvested;
         }
 
         // Calculate how much CVX to compound and distribute
@@ -152,25 +184,8 @@ contract ConvexCrvOptimizer is BaseStrategy, ConvexVaultDepositor {
         for (uint256 i = 0; i < extraRewards; i++) {
             address extraRewardsPoolAddress = baseRewardsPool.extraRewards(i);
             IBaseRewardsPool extraRewardsPool = IBaseRewardsPool(extraRewardsPoolAddress);
-            rewards[i + 3] = TokenAmount(extraRewardsPool.rewardToken(), extraRewardsPool.rewards(address(this)));
+            rewards[i + 2] = TokenAmount(extraRewardsPool.rewardToken(), extraRewardsPool.rewards(address(this)));
         }
         return rewards;
-    }
-
-    /// @dev Adapted from https://docs.convexfinance.com/convexfinanceintegration/cvx-minting
-    /// @notice Only used for view functions to estimate APR
-    function getCvxMint(uint256 _earned) internal view returns (uint256) {
-        uint256 cvxTotalSupply = cvx.totalSupply();
-        uint256 currentCliff = cvxTotalSupply / 100000e18;
-        if (currentCliff < 1000) {
-            uint256 remaining = 1000 - currentCliff;
-            uint256 cvxEarned = (_earned * remaining) / 1000;
-            uint256 amountTillMax = 100000000e18 - cvxTotalSupply;
-            if (cvxEarned > amountTillMax) {
-                cvxEarned = amountTillMax;
-            }
-            return cvxEarned;
-        }
-        return 0;
     }
 }

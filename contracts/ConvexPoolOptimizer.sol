@@ -252,21 +252,4 @@ contract ConvexPoolOptimizer is BaseStrategy, CurveSwapper, UniswapSwapper, Toke
         }
         return rewards;
     }
-
-    /// @dev Adapted from https://docs.convexfinance.com/convexfinanceintegration/cvx-minting
-    /// @notice Only used for view functions to estimate APR
-    function getCvxMint(uint256 _earned) internal view returns (uint256) {
-        uint256 cvxTotalSupply = cvx.totalSupply();
-        uint256 currentCliff = cvxTotalSupply / 100000e18;
-        if (currentCliff < 1000) {
-            uint256 remaining = 1000 - currentCliff;
-            uint256 cvxEarned = (_earned * remaining) / 1000;
-            uint256 amountTillMax = 100000000e18 - cvxTotalSupply;
-            if (cvxEarned > amountTillMax) {
-                cvxEarned = amountTillMax;
-            }
-            return cvxEarned;
-        }
-        return 0;
-    }
 }

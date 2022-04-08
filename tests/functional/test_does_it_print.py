@@ -66,6 +66,11 @@ def test_is_acceptable_apr(vault, strategy, want, keeper, deployer):
     # Earn
     snap.settEarn({"from": keeper})
 
+    # Wait for rewards to accumulate
+    week = 60 * 60 * 24 * 7
+    chain.sleep(week)
+    chain.mine(1)
+
     # Harvest
     strategy.harvest({"from": keeper})
 

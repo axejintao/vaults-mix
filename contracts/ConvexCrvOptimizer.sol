@@ -146,8 +146,8 @@ contract ConvexCrvOptimizer is BaseStrategy, UniswapSwapper, ConvexVaultDeposito
         // Maximize our cvxCRV acquired and deposit into bcvxCRV
         if (crvEarned > 0) {
             uint256 cvxCrvHarvested = _convertCrv(crvEarned, stableSwapSlippageTolerance);
-            _deposit(cvxCrvHarvested);
             _reportToVault(cvxCrvHarvested);
+            _deposit(cvxCrvHarvested);
             harvested[0].amount = cvxCrvHarvested;
         }
 

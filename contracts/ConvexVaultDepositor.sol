@@ -125,16 +125,6 @@ contract ConvexVaultDepositor is CurveSwapper {
       uint256 bveCvxMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
       _exchange(CVX_ADDRESS, BVECVX_ADDRESS, _amount, bveCvxMinOut, 0, true);
 
-      // TODO: enable this snippet, removing the above once BVECVX vault is v1.5
-      // uint256 cvxReceived = CVX_BVECVX_POOL.get_dy(0, 1, _amount);
-      // uint256 swapThreshold = _amount.mul(MAX_BPS.add(_slippage)).div(MAX_BPS);
-      // if (cvxReceived > swapThreshold) {
-      //     uint256 bveCvxMinOut = _amount.mul(MAX_BPS.sub(_slippage)).div(MAX_BPS);
-      //     _exchange(CVX_ADDRESS, BVECVX_ADDRESS, _amount, bveCvxMinOut, 0, true);
-      // } else {
-      //     BVECVX.deposit(cvxReceived);
-      // }
-
       uint256 bveCvxBalanceAfter = BVECVX.balanceOf(address(this));
       uint256 bveCvxGained = bveCvxBalanceAfter - bveCvxBalanceBefore;
       // Ensure our choice actually resulted in an optimized action
